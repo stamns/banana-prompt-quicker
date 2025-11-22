@@ -16,26 +16,28 @@
 
 ## 📸 预览
 
-![](/images/modal.png)
+<img src="https://github.com/glidea/banana-prompt-quicker/blob/main/images/modal.png?raw=true" width="600">
 
-![](/images/input.png)
+<img src="https://github.com/glidea/banana-prompt-quicker/blob/main/images/input.png?raw=true" width="300">
 
 ## 🚀 安装
 
 ### Chrome Web Store 安装
-WIP, 上架中
+WIP，上架中
 
-### 从 Release 安装
+### 手动安装
 
-1. 下载最新的 [Release 版本](https://github.com/glidea/banana-prompt-quicker/tree/main/release)
+1. 下载或 Clone 仓库
 
 2. 在 Chrome 中加载扩展
    - 打开 Chrome 浏览器,访问 `chrome://extensions/`
    - 开启右上角的「开发者模式」
    - 点击「加载已解压的扩展程序」
-   - 选择项目根目录
+   - 选择项目根目录下的 extension 文件夹
 
-3. 访问 [Google AI Studio](https://aistudio.google.com/) 或 [Gemini](https://gemini.google.com/) 开始使用
+<img src="https://github.com/glidea/banana-prompt-quicker/blob/main/images/install.png?raw=true" width="300">
+
+1. 访问 [Google AI Studio](https://aistudio.google.com/) 或 [Gemini](https://gemini.google.com/) 开始使用
 
 
 ## 🤝 贡献提示词
@@ -53,3 +55,20 @@ WIP, 上架中
 }
 ```
 3. 提交 Pull Request
+
+
+---
+
+<table>
+  <tr>
+    <td align="center">
+      <img src="https://github.com/glidea/zenfeed/blob/main/docs/images/wechat.png?raw=true" alt="Wechat QR Code" width="300">
+      <br>
+      <strong>AI 学习交流社群</strong>
+    </td>
+    <td align="center">
+      <img src="https://github.com/glidea/banana-prompt-quicker/blob/main/images/glidea.png?raw=true" width="300">
+      <strong><a href="https://glidea.zenfeed.xyz/">我的其它项目</a></strong>
+    </td>
+  </tr>
+</table>
