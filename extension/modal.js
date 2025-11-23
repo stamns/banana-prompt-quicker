@@ -12,6 +12,7 @@ class BananaModal {
         this.pageSize = this.isMobile() ? 8 : 12
         this.filteredPrompts = []
         this.favorites = []
+        this.keyboardHandler = this.handleKeyboard.bind(this)
     }
 
     async loadPrompts() {
@@ -124,12 +125,16 @@ class BananaModal {
         this.modal.style.display = 'flex'
         this.updateCategoryDropdown()
         this.applyFilters()
+        // 添加键盘事件监听器
+        document.addEventListener('keydown', this.keyboardHandler)
     }
 
     hide() {
         if (this.modal) {
             this.modal.style.display = 'none'
         }
+        // 移除键盘事件监听器
+        document.removeEventListener('keydown', this.keyboardHandler)
     }
 
     isMobile() {
@@ -447,10 +452,55 @@ class BananaModal {
         const pageItems = this.filteredPrompts.slice(start, end)
 
         grid.innerHTML = ''
-        pageItems.forEach(prompt => {
-            const card = this.createPromptCard(prompt, this.favorites)
-            grid.appendChild(card)
-        })
+        
+        if (pageItems.length === 0) {
+            // 没有结果时，显示占位元素以保持高度
+            const placeholder = document.createElement('div')
+            const colors = this.adapter.getThemeColors()
+            const mobile = this.isMobile()
+            
+            // 计算一页应该显示的行数
+            const columns = mobile ? 2 : 4
+            const rows = Math.ceil(this.pageSize / columns)
+            const cardMinHeight = mobile ? 240 : 260
+            const gap = mobile ? 12 : 16
+            const minHeight = rows * cardMinHeight + (rows - 1) * gap
+            
+            placeholder.style.cssText = `
+                grid-column: 1 / -1;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                min-height: ${minHeight}px;
+                color: ${colors.textSecondary};
+                font-size: ${mobile ? '14px' : '16px'};
+            `
+            placeholder.textContent = '没有找到相关提示词'
+            grid.appendChild(placeholder)
+        } else {
+            // 添加实际的卡片
+            pageItems.forEach(prompt => {
+                const card = this.createPromptCard(prompt, this.favorites)
+                grid.appendChild(card)
+            })
+            
+            // 如果结果少于 pageSize，添加透明占位元素以保持高度
+            if (pageItems.length < this.pageSize) {
+                const remaining = this.pageSize - pageItems.length
+                const mobile = this.isMobile()
+                const cardMinHeight = mobile ? 240 : 260
+                
+                for (let i = 0; i < remaining; i++) {
+                    const placeholder = document.createElement('div')
+                    placeholder.style.cssText = `
+                        min-height: ${cardMinHeight}px;
+                        opacity: 0;
+                        pointer-events: none;
+                    `
+                    grid.appendChild(placeholder)
+                }
+            }
+        }
 
         // Scroll to top
         const scrollArea = document.getElementById('prompts-scroll-area')
@@ -571,6 +621,42 @@ class BananaModal {
     changePage(delta) {
         this.currentPage += delta
         this.renderCurrentPage()
+    }
+
+    handleKeyboard(event) {
+        // 检查弹窗是否显示
+        if (!this.modal || this.modal.style.display === 'none') {
+            return
+        }
+
+        // 如果当前焦点在输入框中，不触发翻页
+        const activeElement = document.activeElement
+        if (activeElement && (
+            activeElement.tagName === 'INPUT' ||
+            activeElement.tagName === 'TEXTAREA' ||
+            activeElement.isContentEditable
+        )) {
+            return
+        }
+
+        // 计算总页数
+        const totalPages = Math.ceil(this.filteredPrompts.length / this.pageSize)
+        if (totalPages <= 1) {
+            return
+        }
+
+        // 处理 Left/Right 键
+        if (event.key === 'ArrowLeft') {
+            event.preventDefault()
+            if (this.currentPage > 1) {
+                this.changePage(-1)
+            }
+        } else if (event.key === 'ArrowRight') {
+            event.preventDefault()
+            if (this.currentPage < totalPages) {
+                this.changePage(1)
+            }
+        }
     }
 
     createPromptCard(prompt, favorites) {
