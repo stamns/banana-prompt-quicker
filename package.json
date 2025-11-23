@@ -1,0 +1,28 @@
+{
+  "name": "banana-prompt-quicker",
+  "version": "1.0.0",
+  "description": "一个 Chrome 扩展，让你在 Google AI Studio 和 Gemini 官网快速插入热门提示词",
+  "main": "index.html",
+  "scripts": {
+    "build": "echo 'Static site - no build step required'",
+    "start": "python3 -m http.server 8000",
+    "dev": "python3 -m http.server 8000"
+  },
+  "keywords": [
+    "chrome-extension",
+    "gemini",
+    "ai-studio",
+    "prompt-library",
+    "banana",
+    "productivity"
+  ],
+  "author": "Glidea",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/glidea/banana-prompt-quicker.git"
+  },
+  "homepage": "https://glidea.github.io/banana-prompt-quicker",
+  "devDependencies": {},
+  "dependencies": {}
+}

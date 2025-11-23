@@ -16,7 +16,9 @@
 
 ## 📸 预览
 
-在线网站：https://glidea.github.io/banana-prompt-quicker
+在线网站：
+- GitHub Pages: https://glidea.github.io/banana-prompt-quicker
+- Vercel 部署: [查看部署指南](./DEPLOYMENT.md)
 
 <img src="https://github.com/glidea/banana-prompt-quicker/blob/main/images/modal.png?raw=true" width="600">
 
@@ -40,6 +42,35 @@ WIP，上架中
 <img src="https://github.com/glidea/banana-prompt-quicker/blob/main/images/install.png?raw=true" width="300">
 
 3. 访问 [Google AI Studio](https://aistudio.google.com/) 或 [Gemini](https://gemini.google.com/) 开始使用
+
+## 🌐 部署
+
+### Vercel 部署
+
+项目已配置 Vercel 部署支持，详细步骤请参考 [部署指南](./DEPLOYMENT.md)。
+
+快速部署：
+```bash
+# 安装 Vercel CLI
+npm install -g vercel
+
+# 登录并部署
+vercel login
+vercel --prod
+```
+
+### 本地运行
+
+```bash
+# 方法 1: 使用 Python
+python3 -m http.server 8000
+
+# 方法 2: 使用 Node.js (需要先安装 http-server)
+npm install -g http-server
+http-server -p 8000
+```
+
+访问 http://localhost:8000 查看网站。
 
 ## TDOO
 
