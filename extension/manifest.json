@@ -1,7 +1,7 @@
 {
     "manifest_version": 3,
     "name": "Banana Prompt Quicker",
-    "version": "1.1.0",
+    "version": "1.2.0",
     "description": "Prompts quicker is ALL you 🍌 need",
     "icons": {
         "16": "icon16.png",
@@ -27,5 +27,11 @@
             ],
             "run_at": "document_idle"
         }
-    ]
+    ],
+    "browser_specific_settings": {
+        "gecko": {
+            "id": "banana-prompt-quicker@glidea.io",
+            "strict_min_version": "109.0"
+        }
+    }
 }
