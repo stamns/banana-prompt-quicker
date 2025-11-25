@@ -36,6 +36,7 @@ async function getRemoteSelector(platform, type) {
 class AIStudioAdapter {
     constructor() {
         this.modal = null
+        this._initializingButton = false
     }
 
     async findPromptInput() {
@@ -137,22 +138,31 @@ class AIStudioAdapter {
             return true
         }
 
-        const runButton = await this.findClosestInsertButton()
-        if (!runButton) {
+        if (this._initializingButton) {
             return false
         }
 
-        const bananaBtn = this.createButton()
-        const buttonWrapper = runButton.parentElement
-
+        this._initializingButton = true
         try {
-            buttonWrapper.parentElement.insertBefore(bananaBtn, buttonWrapper)
-        } catch (error) {
-            console.error('插入香蕉按钮失败:', error)
-            buttonWrapper.insertAdjacentElement('beforebegin', bananaBtn)
-        }
+            const runButton = await this.findClosestInsertButton()
+            if (!runButton) {
+                return false
+            }
 
-        return true
+            const bananaBtn = this.createButton()
+            const buttonWrapper = runButton.parentElement
+
+            try {
+                buttonWrapper.parentElement.insertBefore(bananaBtn, buttonWrapper)
+            } catch (error) {
+                console.error('插入香蕉按钮失败:', error)
+                buttonWrapper.insertAdjacentElement('beforebegin', bananaBtn)
+            }
+
+            return true
+        } finally {
+            this._initializingButton = false
+        }
     }
 
     async insertPrompt(promptText) {
@@ -197,6 +207,7 @@ class AIStudioAdapter {
 class GeminiAdapter {
     constructor() {
         this.modal = null
+        this._initializingButton = false
     }
 
     async findPromptInput() {
@@ -318,20 +329,29 @@ class GeminiAdapter {
             return true
         }
 
-        const imageBtn = await this.findClosestInsertButton()
-        if (!imageBtn) {
+        if (this._initializingButton) {
             return false
         }
 
-        const bananaBtn = this.createButton()
+        this._initializingButton = true
         try {
-            imageBtn.insertAdjacentElement('afterend', bananaBtn)
-        } catch (error) {
-            console.error('插入香蕉按钮失败:', error)
-            return false
-        }
+            const imageBtn = await this.findClosestInsertButton()
+            if (!imageBtn) {
+                return false
+            }
 
-        return true
+            const bananaBtn = this.createButton()
+            try {
+                imageBtn.insertAdjacentElement('afterend', bananaBtn)
+            } catch (error) {
+                console.error('插入香蕉按钮失败:', error)
+                return false
+            }
+
+            return true
+        } finally {
+            this._initializingButton = false
+        }
     }
 
     async insertPrompt(promptText) {
