@@ -1,3 +1,19 @@
+const FLASH_MODE_PROMPT = {
+    title: "灵光模式",
+    preview: "https://cdn.jsdelivr.net/gh/glidea/banana-prompt-quicker@main/images/flash_mode.png",
+    prompt: `你现在进入【灵光模式: 有灵感就够了】。请按照以下步骤辅助我完成创作：
+1. 需求理解：分析我输入的粗略的想法描述（可能会包含图片）
+2. 需求澄清：要求我做出细节澄清，提出 3 个你认为最重要的选择题（A/B/C/D），以明确我的生图或修图需求（例如风格、构图、光影、具体相关细节等）。请一次性列出这三个问题
+3. 最终执行：等待我回答选择题后，根据我的原始描述和选择结果调用绘图工具生成图片（如果有附图，请务必作为参数传递给绘图工具，以保证一致性）
+
+---
+
+OK，我想要：`,
+    link: "https://www.xiaohongshu.com/user/profile/5f7dc54d0000000001004afb",
+    author: "Official@glidea",
+    isFlash: true
+}
+
 class BananaModal {
     constructor(adapter) {
         this.adapter = adapter
@@ -7,12 +23,16 @@ class BananaModal {
         this.customPrompts = []
         this.categories = new Set(['全部'])
         this.selectedCategory = 'all'
+        this.sortMode = 'recommend' // 'recommend' | 'random'
         this.loadPrompts()
+        this.loadSortMode()
         this.currentPage = 1
         this.pageSize = this.isMobile() ? 8 : 12
         this.filteredPrompts = []
         this.favorites = []
         this.keyboardHandler = this.handleKeyboard.bind(this)
+        this._isInitialized = false // 用于区分首次显示和重新显示
+        this.randomMap = new Map()
     }
 
     async loadPrompts() {
@@ -31,8 +51,21 @@ class BananaModal {
             }
         })
 
+        this.ensureRandomValues()
+
         this.updateCategoryDropdown()
-        this.applyFilters()
+        // 只在首次加载或有必要时重置页码
+        this.applyFilters(!this._isInitialized)
+    }
+
+    ensureRandomValues() {
+        this.prompts.forEach(p => {
+            const key = `${p.title}-${p.author}`
+            if (!this.randomMap.has(key)) {
+                this.randomMap.set(key, Math.random())
+            }
+            p._randomVal = this.randomMap.get(key)
+        })
     }
 
     updateCategoryDropdown() {
@@ -101,7 +134,7 @@ class BananaModal {
 
                 this.populateCategoryDropdown(optionsContainer, triggerText)
 
-                this.applyFilters()
+                this.applyFilters(true)
             }
 
             optionsContainer.appendChild(option)
@@ -112,9 +145,60 @@ class BananaModal {
         triggerText.textContent = currentLabel
     }
 
+    async loadSortMode() {
+        const result = await chrome.storage.local.get(['banana-sort-mode'])
+        this.sortMode = result['banana-sort-mode'] || 'recommend'
+    }
+
+    async setSortMode(mode) {
+        this.sortMode = mode
+        await chrome.storage.local.set({ 'banana-sort-mode': mode })
+    }
+
     async getCustomPrompts() {
         const result = await chrome.storage.local.get(['banana-custom-prompts'])
         return result['banana-custom-prompts'] || []
+    }
+
+    async compressImage(file) {
+        return new Promise((resolve, reject) => {
+            const reader = new FileReader()
+            reader.readAsDataURL(file)
+            reader.onload = (event) => {
+                const img = new Image()
+                img.src = event.target.result
+                img.onload = () => {
+                    const canvas = document.createElement('canvas')
+                    const MAX_WIDTH = 300
+                    const MAX_HEIGHT = 300
+                    let width = img.width
+                    let height = img.height
+
+                    if (width > height) {
+                        if (width > MAX_WIDTH) {
+                            height *= MAX_WIDTH / width
+                            width = MAX_WIDTH
+                        }
+                    } else {
+                        if (height > MAX_HEIGHT) {
+                            width *= MAX_HEIGHT / height
+                            height = MAX_HEIGHT
+                        }
+                    }
+
+                    canvas.width = width
+                    canvas.height = height
+                    const ctx = canvas.getContext('2d')
+                    ctx.drawImage(img, 0, 0, width, height)
+
+                    // 压缩为 JPEG, 质量 0.7
+                    const dataUrl = canvas.toDataURL('image/jpeg', 0.7)
+                    resolve(dataUrl)
+                }
+                img.onerror = reject
+            }
+            reader.onerror = reject
+        })
     }
 
     show() {
@@ -123,8 +207,20 @@ class BananaModal {
             document.body.appendChild(this.modal)
         }
         this.modal.style.display = 'flex'
-        this.updateCategoryDropdown()
-        this.applyFilters()
+
+        if (!this._isInitialized) {
+            // 首次显示：完整初始化
+            this.updateCategoryDropdown()
+            this.applyFilters(true)
+            this._isInitialized = true
+        } else {
+            // 重新显示：只刷新数据，保留状态
+            this.loadPrompts().then(() => {
+                // 刷新当前页面显示（保持在当前页）
+                this.renderCurrentPage()
+            })
+        }
+
         // 添加键盘事件监听器
         document.addEventListener('keydown', this.keyboardHandler)
     }
@@ -152,8 +248,6 @@ class BananaModal {
         const container = document.createElement('div')
         // Removed overflow: hidden to allow dropdown to show
         container.style.cssText = `background: ${colors.background}; border-radius: ${mobile ? '24px 24px 0 0' : '20px'}; box-shadow: 0 20px 60px ${colors.shadow}; max-width: ${mobile ? '100%' : '900px'}; width: ${mobile ? '100%' : '90%'}; max-height: ${mobile ? '90vh' : '85vh'}; display: flex; flex-direction: column; ${mobile ? 'margin-top: auto;' : ''}; overflow: visible;`
-        // Remove stopPropagation to allow clicks to bubble to document for dropdown closing
-        // container.onclick = (e) => e.stopPropagation()
 
         const searchSection = this.createSearchSection(colors, mobile)
         const content = this.createContent(colors, mobile)
@@ -184,12 +278,16 @@ class BananaModal {
         // Ensure overflow is visible so dropdown can show
         searchSection.style.cssText = `padding: ${mobile ? '16px' : '20px 24px'}; border-bottom: 1px solid ${colors.border}; display: flex; ${mobile ? 'flex-direction: column; gap: 12px;' : 'align-items: center; gap: 16px;'}; overflow: visible; z-index: 100; position: relative;`
 
+        // 搜索框容器
+        const searchContainer = document.createElement('div')
+        searchContainer.style.cssText = `${mobile ? 'width: 100%;' : 'flex: 1;'} display: flex; align-items: center; gap: 8px; position: relative;`
+
         const searchInput = document.createElement('input')
         searchInput.type = 'text'
         searchInput.id = 'prompt-search'
         searchInput.placeholder = '搜索...'
-        searchInput.style.cssText = `${mobile ? 'width: 100%;' : 'flex: 1;'} padding: ${mobile ? '14px 20px' : '12px 18px'}; border: 1px solid ${colors.inputBorder}; border-radius: 16px; outline: none; font-size: ${mobile ? '16px' : '14px'}; background: ${colors.inputBg}; color: ${colors.text}; box-sizing: border-box; transition: all 0.2s;`
-        searchInput.addEventListener('input', () => this.applyFilters())
+        searchInput.style.cssText = `flex: 1; padding: ${mobile ? '14px 20px' : '12px 18px'}; border: 1px solid ${colors.inputBorder}; border-radius: 16px; outline: none; font-size: ${mobile ? '16px' : '14px'}; background: ${colors.inputBg}; color: ${colors.text}; box-sizing: border-box; transition: all 0.2s;`
+        searchInput.addEventListener('input', () => this.applyFilters(true))
 
         searchInput.addEventListener('focus', () => {
             searchInput.style.borderColor = colors.primary
@@ -198,6 +296,46 @@ class BananaModal {
             const currentColors = this.adapter.getThemeColors()
             searchInput.style.borderColor = currentColors.inputBorder
         })
+
+        // Sort Mode Button
+        const sortBtnContainer = document.createElement('div')
+        sortBtnContainer.style.cssText = 'position: relative; display: flex; align-items: center;'
+
+        const sortBtn = document.createElement('button')
+        sortBtn.id = 'sort-mode-btn'
+        const currentModeText = this.sortMode === 'recommend' ? '随机焕新' : '推荐排序'
+        sortBtn.innerHTML = this.sortMode === 'recommend'
+            ? '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="6" x2="21" y2="6"></line><line x1="8" y1="12" x2="21" y2="12"></line><line x1="8" y1="18" x2="21" y2="18"></line><line x1="3" y1="6" x2="3.01" y2="6"></line><line x1="3" y1="12" x2="3.01" y2="12"></line><line x1="3" y1="18" x2="3.01" y2="18"></line></svg>'
+            : '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg>'
+        sortBtn.style.cssText = `padding: ${mobile ? '10px' : '8px'}; border: none; background: transparent; color: ${colors.textSecondary}; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: all 0.2s; border-radius: 8px;`
+        sortBtn.onclick = () => this.toggleSortMode()
+
+        // Tooltip
+        const tooltip = document.createElement('div')
+        tooltip.id = 'sort-tooltip'
+        tooltip.textContent = `切换${currentModeText}`
+        tooltip.style.cssText = `position: absolute; bottom: -40px; left: 50%; transform: translateX(-50%); background: ${colors.surface}; color: ${colors.text}; padding: 6px 12px; border-radius: 8px; font-size: 12px; white-space: nowrap; opacity: 0; pointer-events: none; transition: opacity 0.2s; box-shadow: 0 4px 12px ${colors.shadow}; border: 1px solid ${colors.border}; z-index: 1000;`
+
+        if (!mobile) {
+            sortBtn.onmouseenter = () => {
+                sortBtn.style.color = colors.primary
+                sortBtn.style.transform = 'scale(1.1)'
+                sortBtn.style.background = `${colors.primary}10`
+                tooltip.style.opacity = '1'
+            }
+            sortBtn.onmouseleave = () => {
+                sortBtn.style.color = colors.textSecondary
+                sortBtn.style.transform = 'scale(1)'
+                sortBtn.style.background = 'transparent'
+                tooltip.style.opacity = '0'
+            }
+        }
+
+        sortBtnContainer.appendChild(sortBtn)
+        sortBtnContainer.appendChild(tooltip)
+
+        searchContainer.appendChild(searchInput)
+        searchContainer.appendChild(sortBtnContainer)
 
         const filterContainer = document.createElement('div')
         filterContainer.style.cssText = `display: flex; gap: 8px; align-items: center; ${mobile ? 'justify-content: space-between; flex-wrap: wrap;' : ''}; position: relative; z-index: 101;`
@@ -302,7 +440,7 @@ class BananaModal {
         filterContainer.appendChild(dropdownContainer)
         filterContainer.appendChild(buttonsContainer)
 
-        searchSection.appendChild(searchInput)
+        searchSection.appendChild(searchContainer)
         searchSection.appendChild(filterContainer)
 
         return searchSection
@@ -385,10 +523,36 @@ class BananaModal {
             }
         }
 
-        this.applyFilters()
+        this.applyFilters(true)
     }
 
-    async applyFilters() {
+    async toggleSortMode() {
+        const newMode = this.sortMode === 'recommend' ? 'random' : 'recommend'
+        await this.setSortMode(newMode)
+        if (newMode === 'random') {
+            this.randomMap.clear()
+            this.ensureRandomValues()
+        }
+
+        // 更新按钮图标和 tooltip
+        const sortBtn = document.getElementById('sort-mode-btn')
+        const tooltip = document.getElementById('sort-tooltip')
+        if (sortBtn) {
+            const currentModeText = newMode === 'recommend' ? '随机焕新' : '推荐排序'
+            sortBtn.innerHTML = newMode === 'recommend'
+                ? '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="6" x2="21" y2="6"></line><line x1="8" y1="12" x2="21" y2="12"></line><line x1="8" y1="18" x2="21" y2="18"></line><line x1="3" y1="6" x2="3.01" y2="6"></line><line x1="3" y1="12" x2="3.01" y2="12"></line><line x1="3" y1="18" x2="3.01" y2="18"></line></svg>'
+                : '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg>'
+
+            if (tooltip) {
+                tooltip.textContent = `切换${currentModeText}`
+            }
+        }
+
+        // 重新应用过滤和排序
+        this.applyFilters(true)
+    }
+
+    async applyFilters(resetPage = true) {
         const searchInput = document.getElementById('prompt-search')
         const keyword = searchInput ? searchInput.value.toLowerCase() : ''
 
@@ -421,25 +585,50 @@ class BananaModal {
             })
         })
 
-        // Sort: Favorites first
-        // Sort: Favorites > Custom > Others
-        filtered.sort((a, b) => {
-            const aId = `${a.title}-${a.author}`
-            const bId = `${b.title}-${b.author}`
-            const aIsFavorite = this.favorites.includes(aId)
-            const bIsFavorite = this.favorites.includes(bId)
+        // Sort: Favorites > Custom > Others (根据 sortMode)
+        // 先分组
+        const favoriteItems = []
+        const customItems = []
+        const normalItems = []
 
-            if (aIsFavorite && !bIsFavorite) return -1
-            if (!aIsFavorite && bIsFavorite) return 1
+        filtered.forEach(item => {
+            const itemId = `${item.title}-${item.author}`
+            const isFavorite = this.favorites.includes(itemId)
 
-            if (a.isCustom && !b.isCustom) return -1
-            if (!a.isCustom && b.isCustom) return 1
-
-            return 0
+            if (isFavorite) {
+                favoriteItems.push(item)
+            } else if (item.isCustom) {
+                customItems.push(item)
+            } else {
+                normalItems.push(item)
+            }
         })
 
+        // 普通项根据 sortMode 排序
+        if (this.sortMode === 'random') {
+            normalItems.sort((a, b) => a._randomVal - b._randomVal)
+        }
+        // recommend 模式下保持原顺序
+
+        // 合并：Flash Mode > 收藏 > 自定义 > 普通
+        filtered = [...favoriteItems, ...customItems, ...normalItems]
+
+        // Always prepend Flash Mode
+        filtered.unshift(FLASH_MODE_PROMPT)
+
         this.filteredPrompts = filtered
-        this.currentPage = 1
+
+        // 智能处理页码：只在需要时重置，或者当前页超出范围时调整
+        if (resetPage) {
+            this.currentPage = 1
+        } else {
+            // 确保当前页在有效范围内
+            const totalPages = Math.ceil(this.filteredPrompts.length / this.pageSize)
+            if (this.currentPage > totalPages && totalPages > 0) {
+                this.currentPage = totalPages
+            }
+        }
+
         this.renderCurrentPage()
     }
 
@@ -452,20 +641,20 @@ class BananaModal {
         const pageItems = this.filteredPrompts.slice(start, end)
 
         grid.innerHTML = ''
-        
+
         if (pageItems.length === 0) {
             // 没有结果时，显示占位元素以保持高度
             const placeholder = document.createElement('div')
             const colors = this.adapter.getThemeColors()
             const mobile = this.isMobile()
-            
+
             // 计算一页应该显示的行数
             const columns = mobile ? 2 : 4
             const rows = Math.ceil(this.pageSize / columns)
             const cardMinHeight = mobile ? 240 : 260
             const gap = mobile ? 12 : 16
             const minHeight = rows * cardMinHeight + (rows - 1) * gap
-            
+
             placeholder.style.cssText = `
                 grid-column: 1 / -1;
                 display: flex;
@@ -483,13 +672,13 @@ class BananaModal {
                 const card = this.createPromptCard(prompt, this.favorites)
                 grid.appendChild(card)
             })
-            
+
             // 如果结果少于 pageSize，添加透明占位元素以保持高度
             if (pageItems.length < this.pageSize) {
                 const remaining = this.pageSize - pageItems.length
                 const mobile = this.isMobile()
                 const cardMinHeight = mobile ? 240 : 260
-                
+
                 for (let i = 0; i < remaining; i++) {
                     const placeholder = document.createElement('div')
                     placeholder.style.cssText = `
@@ -746,15 +935,28 @@ class BananaModal {
         }
 
         const modeTag = document.createElement('span')
-        const isEdit = prompt.mode === 'edit'
-        const tagBg = theme === 'dark'
-            ? (isEdit ? 'rgba(10, 132, 255, 0.15)' : 'rgba(48, 209, 88, 0.15)')
-            : (isEdit ? 'rgba(0, 122, 255, 0.12)' : 'rgba(52, 199, 89, 0.12)')
-        const tagColor = theme === 'dark'
-            ? (isEdit ? '#0a84ff' : '#30d158')
-            : (isEdit ? '#007aff' : '#34c759')
+        let tagText = '生图'
+        let tagBg = ''
+        let tagColor = ''
+
+        if (prompt.isFlash) {
+            tagText = '万能'
+            // Special Flash Mode styling (e.g., purple/gradient)
+            tagBg = theme === 'dark' ? 'rgba(168, 85, 247, 0.15)' : 'rgba(147, 51, 234, 0.12)'
+            tagColor = theme === 'dark' ? '#a855f7' : '#9333ea'
+        } else {
+            const isEdit = prompt.mode === 'edit'
+            tagText = isEdit ? '编辑' : '生图'
+            tagBg = theme === 'dark'
+                ? (isEdit ? 'rgba(10, 132, 255, 0.15)' : 'rgba(48, 209, 88, 0.15)')
+                : (isEdit ? 'rgba(0, 122, 255, 0.12)' : 'rgba(52, 199, 89, 0.12)')
+            tagColor = theme === 'dark'
+                ? (isEdit ? '#0a84ff' : '#30d158')
+                : (isEdit ? '#007aff' : '#34c759')
+        }
+
         modeTag.style.cssText = `background: ${tagBg}; color: ${tagColor}; padding: 4px 10px; border-radius: 12px; font-size: ${mobile ? '12px' : '11px'}; font-weight: 600; backdrop-filter: blur(10px); flex-shrink: 0;`
-        modeTag.textContent = isEdit ? '编辑' : '生图'
+        modeTag.textContent = tagText
 
         bottomRow.appendChild(author)
         bottomRow.appendChild(modeTag)
@@ -799,7 +1001,7 @@ class BananaModal {
         }
 
         await chrome.storage.sync.set({ 'banana-favorites': favorites })
-        this.applyFilters()
+        this.applyFilters(false)
     }
 
     showAddPromptModal() {
@@ -836,6 +1038,71 @@ class BananaModal {
         }
 
         const titleInput = createInput('标题')
+
+        // Image Upload UI
+        const imageContainer = document.createElement('div')
+        imageContainer.style.cssText = `display: flex; align-items: center; gap: 12px; width: 100%;`
+
+        const fileInput = document.createElement('input')
+        fileInput.type = 'file'
+        fileInput.accept = 'image/*'
+        fileInput.style.display = 'none'
+
+        const previewBtn = document.createElement('div')
+        previewBtn.style.cssText = `width: 60px; height: 60px; border-radius: 12px; border: 1px dashed ${colors.border}; background: ${colors.inputBg}; cursor: pointer; display: flex; align-items: center; justify-content: center; overflow: hidden; position: relative; flex-shrink: 0; transition: all 0.2s;`
+
+        const placeholderIcon = document.createElement('span')
+        placeholderIcon.innerHTML = `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="${colors.textSecondary}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline></svg>`
+        previewBtn.appendChild(placeholderIcon)
+
+        const previewImg = document.createElement('img')
+        previewImg.style.cssText = `width: 100%; height: 100%; object-fit: cover; display: none;`
+        previewBtn.appendChild(previewImg)
+
+        const uploadTip = document.createElement('span')
+        uploadTip.textContent = '上传封面 (可选)'
+        uploadTip.style.cssText = `font-size: 13px; color: ${colors.textSecondary};`
+
+        const clearImgBtn = document.createElement('button')
+        clearImgBtn.innerHTML = '×'
+        clearImgBtn.style.cssText = `margin-left: auto; width: 24px; height: 24px; border-radius: 50%; background: ${colors.border}; color: ${colors.text}; border: none; cursor: pointer; display: none; align-items: center; justify-content: center; font-size: 16px; padding-bottom: 2px;`
+
+        previewBtn.onclick = () => fileInput.click()
+
+        let selectedFile = null
+
+        fileInput.onchange = (e) => {
+            if (e.target.files && e.target.files[0]) {
+                const file = e.target.files[0]
+                selectedFile = file
+
+                const reader = new FileReader()
+                reader.onload = (evt) => {
+                    previewImg.src = evt.target.result
+                    previewImg.style.display = 'block'
+                    placeholderIcon.style.display = 'none'
+                    previewBtn.style.borderStyle = 'solid'
+                    clearImgBtn.style.display = 'flex'
+                }
+                reader.readAsDataURL(file)
+            }
+        }
+
+        clearImgBtn.onclick = () => {
+            fileInput.value = ''
+            selectedFile = null
+            previewImg.src = ''
+            previewImg.style.display = 'none'
+            placeholderIcon.style.display = 'block'
+            previewBtn.style.borderStyle = 'dashed'
+            clearImgBtn.style.display = 'none'
+        }
+
+        imageContainer.appendChild(fileInput)
+        imageContainer.appendChild(previewBtn)
+        imageContainer.appendChild(uploadTip)
+        imageContainer.appendChild(clearImgBtn)
+
         const promptInput = createInput('Prompt 内容', true)
 
         // Category Dropdown for Add Prompt
@@ -1018,11 +1285,28 @@ class BananaModal {
                 return
             }
 
+            let previewDataUrl = 'https://www.gstatic.com/lamda/images/gemini_sparkle_v002_d4735304ff6292a690345.svg'
+
+            if (selectedFile) {
+                try {
+                    saveBtn.textContent = '处理中...'
+                    saveBtn.disabled = true
+                    previewDataUrl = await this.compressImage(selectedFile)
+                } catch (err) {
+                    console.error('图片压缩失败', err)
+                    alert('图片处理失败，将使用默认图标')
+                } finally {
+                    saveBtn.textContent = '保存'
+                    saveBtn.disabled = false
+                }
+            }
+
             await this.saveCustomPrompt({
                 title: titleVal,
                 prompt: promptVal,
                 mode: selectedMode,
-                category: selectedAddCategory
+                category: selectedAddCategory,
+                preview: previewDataUrl
             })
             document.body.removeChild(overlay)
             cleanup()
@@ -1044,6 +1328,7 @@ class BananaModal {
 
         dialog.appendChild(title)
         dialog.appendChild(titleInput)
+        dialog.appendChild(imageContainer)
         dialog.appendChild(categoryContainer)
         dialog.appendChild(promptInput)
         dialog.appendChild(modeContainer)
@@ -1066,7 +1351,7 @@ class BananaModal {
             author: 'Me',
             isCustom: true,
             id: Date.now(),
-            preview: 'https://www.gstatic.com/lamda/images/gemini_sparkle_v002_d4735304ff6292a690345.svg' // 默认图标
+            preview: data.preview || 'https://www.gstatic.com/lamda/images/gemini_sparkle_v002_d4735304ff6292a690345.svg'
         }
 
         const customPrompts = await this.getCustomPrompts()

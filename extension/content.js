@@ -1,14 +1,95 @@
+// 默认主题颜色配置
+function getDefaultThemeColors(theme = 'light') {
+    if (theme === 'dark') {
+        return {
+            background: '#141414',
+            surface: '#1c1c1e',
+            border: '#38383a',
+            text: '#f5f5f7',
+            textSecondary: '#98989d',
+            primary: '#0a84ff',
+            hover: '#2c2c2e',
+            inputBg: '#1c1c1e',
+            inputBorder: '#38383a',
+            shadow: 'rgba(0,0,0,0.5)'
+        }
+    }
+
+    return {
+        background: '#ffffff',
+        surface: '#f5f5f7',
+        border: '#d2d2d7',
+        text: '#1d1d1f',
+        textSecondary: '#6e6e73',
+        primary: '#007aff',
+        hover: '#e8e8ed',
+        inputBg: '#ffffff',
+        inputBorder: '#d2d2d7',
+        shadow: 'rgba(0,0,0,0.1)'
+    }
+}
+
+async function getRemoteSelector(platform, type) {
+    const CACHE_KEY = 'selector_config'
+    const CACHE_DURATION = 2 * 60 * 1000 // 2分钟
+    const CONFIG_URL = 'https://raw.githubusercontent.com/glidea/banana-prompt-quicker/main/selectors.json'
+
+    // 1. 尝试从缓存获取
+    const cached = await chrome.storage.local.get(CACHE_KEY)
+    if (cached[CACHE_KEY]) {
+        const { data, timestamp } = cached[CACHE_KEY]
+        if (Date.now() - timestamp < CACHE_DURATION) {
+            return data[platform]?.[type]
+        }
+    }
+
+    // 2. 请求远程配置
+    try {
+        const response = await fetch(CONFIG_URL)
+        const config = await response.json()
+
+        // 缓存配置
+        await chrome.storage.local.set({
+            [CACHE_KEY]: {
+                data: config,
+                timestamp: Date.now()
+            }
+        })
+
+        return config[platform]?.[type]
+    } catch (error) {
+        console.warn('获取远程 selector 失败:', error)
+        // 降级:使用过期缓存
+        return cached[CACHE_KEY]?.data?.[platform]?.[type]
+    }
+}
+
 class AIStudioAdapter {
     constructor() {
         this.modal = null
+        this._initializingButton = false
     }
 
-    findPromptInput() {
-        return document.querySelector('ms-prompt-input-wrapper textarea')
+    async findPromptInput() {
+        let el = document.querySelector('ms-prompt-input-wrapper textarea')
+        if (el) {
+            return el
+        }
+
+        // Fallback.
+        const s = await getRemoteSelector('aistudio', 'promptInput')
+        return document.querySelector(s)
     }
 
-    findRunButton() {
-        return document.querySelector('ms-run-button button')
+    async findClosestInsertButton() {
+        let el = document.querySelector('ms-run-button button')
+        if (el) {
+            return el
+        }
+
+        // Fallback.
+        const s = await getRemoteSelector('aistudio', 'insertButton')
+        return document.querySelector(s)
     }
 
     getCurrentTheme() {
@@ -16,35 +97,7 @@ class AIStudioAdapter {
     }
 
     getThemeColors() {
-        const theme = this.getCurrentTheme()
-
-        if (theme === 'dark') {
-            return {
-                background: '#141414',
-                surface: '#1c1c1e',
-                border: '#38383a',
-                text: '#f5f5f7',
-                textSecondary: '#98989d',
-                primary: '#0a84ff',
-                hover: '#2c2c2e',
-                inputBg: '#1c1c1e',
-                inputBorder: '#38383a',
-                shadow: 'rgba(0,0,0,0.5)'
-            }
-        }
-
-        return {
-            background: '#ffffff',
-            surface: '#f5f5f7',
-            border: '#d2d2d7',
-            text: '#1d1d1f',
-            textSecondary: '#6e6e73',
-            primary: '#007aff',
-            hover: '#e8e8ed',
-            inputBg: '#ffffff',
-            inputBorder: '#d2d2d7',
-            shadow: 'rgba(0,0,0,0.1)'
-        }
+        return getDefaultThemeColors(this.getCurrentTheme())
     }
 
     createButton() {
@@ -83,34 +136,48 @@ class AIStudioAdapter {
         return wrapper
     }
 
-    initButton() {
+    async initButton() {
         if (document.getElementById('banana-btn')) {
             return true
         }
 
-        const runButton = this.findRunButton()
-        if (!runButton) {
+        if (this._initializingButton) {
             return false
         }
 
-        const bananaBtn = this.createButton()
-        const buttonWrapper = runButton.parentElement
-
+        this._initializingButton = true
         try {
-            buttonWrapper.parentElement.insertBefore(bananaBtn, buttonWrapper)
-        } catch (error) {
-            console.error('插入香蕉按钮失败:', error)
-            buttonWrapper.insertAdjacentElement('beforebegin', bananaBtn)
-        }
+            const runButton = await this.findClosestInsertButton()
+            if (!runButton) {
+                return false
+            }
 
-        return true
+            const bananaBtn = this.createButton()
+            const buttonWrapper = runButton.parentElement
+
+            try {
+                buttonWrapper.parentElement.insertBefore(bananaBtn, buttonWrapper)
+            } catch (error) {
+                console.error('插入香蕉按钮失败:', error)
+                buttonWrapper.insertAdjacentElement('beforebegin', bananaBtn)
+            }
+
+            return true
+        } finally {
+            this._initializingButton = false
+        }
     }
 
-    insertPrompt(promptText) {
-        const textarea = this.findPromptInput()
+    async insertPrompt(promptText) {
+        const textarea = await this.findPromptInput()
         if (textarea) {
             textarea.value = promptText
             textarea.dispatchEvent(new Event('input', { bubbles: true }))
+
+            textarea.focus()
+            const length = promptText.length
+            textarea.setSelectionRange(length, length)
+
             if (this.modal) {
                 this.modal.hide()
             }
@@ -118,10 +185,10 @@ class AIStudioAdapter {
     }
 
     waitForElements() {
-        const checkInterval = setInterval(() => {
-            const input = this.findPromptInput()
+        const checkInterval = setInterval(async () => {
+            const input = await this.findPromptInput()
             if (input) {
-                const success = this.initButton()
+                const success = await this.initButton()
                 if (success) {
                     clearInterval(checkInterval)
                 }
@@ -148,20 +215,29 @@ class AIStudioAdapter {
 class GeminiAdapter {
     constructor() {
         this.modal = null
+        this._initializingButton = false
     }
 
-    findPromptInput() {
-        return document.querySelector('div[contenteditable="true"][role="textbox"]') ||
-            document.querySelector('rich-textarea div[contenteditable="true"]')
-    }
-
-    findImageButton() {
-        const icon = document.querySelector('mat-icon[data-mat-icon-name="photo_prints"][fonticon="photo_prints"]')
-        if (icon) {
-            const btn = icon.closest('button.toolbox-drawer-item-deselect-button')
-            return btn
+    async findPromptInput() {
+        let el = document.querySelector('div.ql-editor[contenteditable="true"]')
+        if (el) {
+            return el
         }
-        return null
+
+        // Fallback.
+        const selector = await getRemoteSelector('gemini', 'promptInput')
+        return document.querySelector(selector)
+    }
+
+    async findClosestInsertButton() {
+        let el = document.querySelector('button.toolbox-drawer-item-deselect-button:has(img.img-icon)')
+        if (el) {
+            return el
+        }
+
+        // Fallback.
+        const s = await getRemoteSelector('gemini', 'insertButton')
+        return document.querySelector(s)
     }
 
     getCurrentTheme() {
@@ -170,35 +246,7 @@ class GeminiAdapter {
     }
 
     getThemeColors() {
-        const theme = this.getCurrentTheme()
-
-        if (theme === 'dark') {
-            return {
-                background: '#141414',
-                surface: '#1c1c1e',
-                border: '#38383a',
-                text: '#f5f5f7',
-                textSecondary: '#98989d',
-                primary: '#0a84ff',
-                hover: '#2c2c2e',
-                inputBg: '#1c1c1e',
-                inputBorder: '#38383a',
-                shadow: 'rgba(0,0,0,0.5)'
-            }
-        }
-
-        return {
-            background: '#ffffff',
-            surface: '#f5f5f7',
-            border: '#d2d2d7',
-            text: '#1d1d1f',
-            textSecondary: '#6e6e73',
-            primary: '#007aff',
-            hover: '#e8e8ed',
-            inputBg: '#ffffff',
-            inputBorder: '#d2d2d7',
-            shadow: 'rgba(0,0,0,0.1)'
-        }
+        return getDefaultThemeColors(this.getCurrentTheme())
     }
 
     createButton() {
@@ -256,32 +304,39 @@ class GeminiAdapter {
         return btn
     }
 
-    initButton() {
+    async initButton() {
         if (document.getElementById('banana-btn')) {
             return true
         }
 
-        const imageBtn = this.findImageButton()
-        if (!imageBtn) {
+        if (this._initializingButton) {
             return false
         }
 
-        const bananaBtn = this.createButton()
+        this._initializingButton = true
         try {
-            imageBtn.insertAdjacentElement('afterend', bananaBtn)
-        } catch (error) {
-            console.error('插入香蕉按钮失败:', error)
-            return false
-        }
+            const imageBtn = await this.findClosestInsertButton()
+            if (!imageBtn) {
+                return false
+            }
 
-        return true
+            const bananaBtn = this.createButton()
+            try {
+                imageBtn.insertAdjacentElement('afterend', bananaBtn)
+            } catch (error) {
+                console.error('插入香蕉按钮失败:', error)
+                return false
+            }
+
+            return true
+        } finally {
+            this._initializingButton = false
+        }
     }
 
-    insertPrompt(promptText) {
-        const textarea = this.findPromptInput()
+    async insertPrompt(promptText) {
+        const textarea = await this.findPromptInput()
         if (textarea) {
-            textarea.focus()
-
             const lines = promptText.split('\n')
             const htmlContent = lines.map(line => {
                 const escaped = line
@@ -294,6 +349,15 @@ class GeminiAdapter {
             textarea.innerHTML = htmlContent
             textarea.dispatchEvent(new Event('input', { bubbles: true }))
 
+            // 聚焦并将光标定位到文字末尾
+            textarea.focus()
+            const range = document.createRange()
+            const sel = window.getSelection()
+            range.selectNodeContents(textarea)
+            range.collapse(false) // false 表示折叠到末尾
+            sel.removeAllRanges()
+            sel.addRange(range)
+
             if (this.modal) {
                 this.modal.hide()
             }
@@ -304,13 +368,13 @@ class GeminiAdapter {
     }
 
     startObserver() {
-        const observer = new MutationObserver(() => {
+        const observer = new MutationObserver(async () => {
             const existingBtn = document.getElementById('banana-btn')
-            const imageBtn = this.findImageButton()
+            const imageBtn = await this.findClosestInsertButton()
 
             if (imageBtn) {
                 if (!existingBtn) {
-                    this.initButton()
+                    await this.initButton()
                 }
             } else {
                 if (existingBtn) {
@@ -326,6 +390,120 @@ class GeminiAdapter {
     }
 }
 
+// 通用适配器，用于任意网站
+class UniversalAdapter {
+    constructor() {
+        this.modal = null
+        this.lastFocusedElement = null
+        this.trackFocusedElement()
+    }
+
+    // 跟踪最后聚焦的可编辑元素
+    trackFocusedElement() {
+        document.addEventListener('focusin', (e) => {
+            if (this.isEditableElement(e.target)) {
+                this.lastFocusedElement = e.target
+            }
+        })
+    }
+
+    isEditableElement(el) {
+        if (!el) return false
+        return el.tagName === 'TEXTAREA' ||
+            (el.tagName === 'INPUT' && ['text', 'search', 'email', 'url'].includes(el.type)) ||
+            el.isContentEditable
+    }
+
+    async findPromptInput() {
+        // 优先使用最后聚焦的元素
+        if (this.lastFocusedElement && this.isEditableElement(this.lastFocusedElement)) {
+            return this.lastFocusedElement
+        }
+        // fallback 到当前激活元素
+        const active = document.activeElement
+        if (this.isEditableElement(active)) {
+            return active
+        }
+        return null
+    }
+
+    async insertPrompt(promptText) {
+        const el = await this.findPromptInput()
+        if (!el || !this.isEditableElement(el)) {
+            alert('🍌 请先点击输入框，然后再右键选择 Banana Prompts')
+            return
+        }
+
+        if (el.isContentEditable) {
+            // contenteditable 处理 - 在光标位置插入
+            const selection = window.getSelection()
+            if (selection.rangeCount > 0) {
+                const range = selection.getRangeAt(0)
+                range.deleteContents()
+
+                const lines = promptText.split('\n')
+                const fragment = document.createDocumentFragment()
+
+                lines.forEach((line, index) => {
+                    const textNode = document.createTextNode(line)
+                    fragment.appendChild(textNode)
+                    if (index < lines.length - 1) {
+                        fragment.appendChild(document.createElement('br'))
+                    }
+                })
+
+                range.insertNode(fragment)
+                range.collapse(false)
+                selection.removeAllRanges()
+                selection.addRange(range)
+            } else {
+                // 如果没有选区，追加到末尾
+                const htmlContent = promptText.split('\n').map(line => {
+                    const escaped = line
+                        .replace(/&/g, '&amp;')
+                        .replace(/</g, '&lt;')
+                        .replace(/>/g, '&gt;')
+                    return `<p>${escaped || '<br>'}</p>`
+                }).join('')
+                el.innerHTML += htmlContent
+            }
+            el.dispatchEvent(new Event('input', { bubbles: true }))
+        } else {
+            // textarea/input 处理 - 在光标位置插入
+            const start = el.selectionStart
+            const end = el.selectionEnd
+            const currentValue = el.value
+
+            const newValue = currentValue.substring(0, start) + promptText + currentValue.substring(end)
+            el.value = newValue
+
+            // 设置光标位置到插入内容之后
+            const newCursorPos = start + promptText.length
+            el.setSelectionRange(newCursorPos, newCursorPos)
+
+            el.dispatchEvent(new Event('input', { bubbles: true }))
+            el.focus()
+        }
+
+        if (this.modal) {
+            this.modal.hide()
+        }
+    }
+
+    getCurrentTheme() {
+        return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
+    }
+
+    getThemeColors() {
+        return getDefaultThemeColors(this.getCurrentTheme())
+    }
+
+    // 通用适配器不需要按钮
+    initButton() { return false }
+    waitForElements() { }
+    startObserver() { }
+}
+
 function init() {
     const hostname = window.location.hostname
     let adapter
@@ -335,23 +513,36 @@ function init() {
     } else if (hostname.includes('gemini')) {
         adapter = new GeminiAdapter()
     } else {
-        console.warn('Banana Prompt: 未知平台', hostname)
-        return
+        // 其他网站使用通用适配器
+        adapter = new UniversalAdapter()
     }
 
     const modal = new BananaModal(adapter)
     adapter.modal = modal
-    adapter.waitForElements()
-    adapter.startObserver()
 
-    const handleNavigationChange = () => {
-        setTimeout(() => {
-            adapter.initButton()
-        }, 1000)
+    // 只在特定平台初始化按钮和观察器
+    if (hostname.includes('aistudio') || hostname.includes('gemini')) {
+        adapter.waitForElements()
+        adapter.startObserver()
+
+        const handleNavigationChange = () => {
+            setTimeout(() => {
+                adapter.initButton()
+            }, 1000)
+        }
+        window.addEventListener('popstate', handleNavigationChange)
+        window.addEventListener('pushstate', handleNavigationChange)
+        window.addEventListener('replacestate', handleNavigationChange)
     }
-    window.addEventListener('popstate', handleNavigationChange)
-    window.addEventListener('pushstate', handleNavigationChange)
-    window.addEventListener('replacestate', handleNavigationChange)
+
+    // 监听来自 background 的消息（右键菜单点击）
+    chrome.runtime.onMessage.addListener((message) => {
+        if (message.action === 'openModal') {
+            if (modal) {
+                modal.show()
+            }
+        }
+    })
 }
 
 if (document.readyState === 'complete' || document.readyState === 'interactive') {
