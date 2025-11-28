@@ -1,8 +1,13 @@
-function init() {
+async function init() {
     const hostname = window.location.hostname;
+    const config = await window.ConfigManager.get();
 
     let site;
-    if (hostname.includes('aistudio')) {
+    const dynamicSiteConfig = config?.selectors?.dynamic?.find(d => d.host === hostname);
+
+    if (dynamicSiteConfig) {
+        site = new DynamicSite(dynamicSiteConfig);
+    } else if (hostname.includes('aistudio')) {
         site = new AIStudioSite();
     } else if (hostname.includes('business.gemini.google')) {
         site = new GeminiEnterpriseSite();
@@ -17,7 +22,7 @@ function init() {
     site.modal = modal;
 
     // Only initialize button and observers on specific platforms
-    if (hostname.includes('aistudio') || hostname.includes('gemini')) {
+    if (hostname.includes('aistudio') || hostname.includes('gemini') || dynamicSiteConfig) {
         site.ensureButtonByWatch();
     }
 

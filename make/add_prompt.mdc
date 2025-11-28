@@ -35,7 +35,7 @@
 |------|------|------|------|
 | `title` | string | 提示词标题 | 简洁有吸引力,10-30字,能准确概括功能 |
 | `preview` | string | 预览图 URL | 必须使用 CDN 地址格式:`https://cdn.jsdelivr.net/gh/glidea/banana-prompt-quicker@main/images/{文件名}` |
-| `prompt` | string | 实际提示词内容 | 清晰可执行,避免模糊表述 |
+| `prompt` | string | 实际提示词内容 | 清晰可执行，避免模糊表述，如果是其他语言，请翻译成同等格式的中文 |
 | `author` | string | 作者信息 | 格式:`@用户名` 或 `平台@用户名` 或 `Official` |
 | `mode` | string | 生成模式 | 只能是 `generate`(文生图) 或 `edit`(编辑图片) |
 | `category` | string | 主分类 | 只能是:`学习`、`工作`、`生活`、`有趣`、`NSFW` |
